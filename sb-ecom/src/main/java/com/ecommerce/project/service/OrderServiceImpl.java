@@ -17,6 +17,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
@@ -50,72 +51,89 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     AuthUtil authUtil;
 
-    @Transactional
-    @Override
-    public OrderDTO placeOrder(String emailId, Long addressId, String paymentMethod, String pgName, String pgPaymentId, String pgStatus, String pgResponseMessage) {
 
-        //Getting User Cart
-        //Create a new order with payment info
-        //Get items from the cart into the order items
-        Cart cart = cartRepository.findCartByEmail(emailId);
-        if (cart == null) {
-            throw new ResourceNotFoundException("Cart", "email", emailId);
-        }
-        Address address = addressRepository.findById(addressId)
-                .orElseThrow(() -> new ResourceNotFoundException("Address", "addressId", addressId));
+@Transactional
+@Override
+public OrderDTO placeOrder(String emailId, Long addressId, String paymentMethod, String pgName, String pgPaymentId, String pgStatus, String pgResponseMessage) {
 
-        Order order = new Order();
-        order.setEmail(emailId);
-        order.setOrderDate(LocalDate.now());
-        order.setTotalAmount(cart.getTotalPrice());
-        order.setOrderStatus("Accepted");
-        order.setAddress(address);
-
-
-        Payment payment = new Payment(paymentMethod, pgPaymentId, pgStatus,pgResponseMessage,pgName);
-        payment.setOrder(order);
-        payment = paymentRepository.save(payment);
-        order.setPayment(payment);
-
-        Order savedOrder = orderRepository.save(order);
-
-        List<CartItem> cartItems =  cart.getCartItems();
-        if(cartItems.isEmpty()){
-            throw new APIException("Cart is empty");
-        }
-
-        List<OrderItem> orderItems = new ArrayList<>();
-        for(CartItem cartItem : cartItems){
-            OrderItem orderItem = new OrderItem();
-            orderItem.setProduct(cartItem.getProduct());
-            orderItem.setQuantity(cartItem.getQuantity());
-            orderItem.setDiscount(cartItem.getDiscount());
-            orderItem.setOrderedProductPrice(cartItem.getProductPrice());
-            orderItem.setOrder(savedOrder);
-            orderItems.add(orderItem);
-        }
-
-        orderItems = orderItemRepository.saveAll(orderItems);
-        //Update product stock
-        cart.getCartItems().forEach(item-> {
-            int quantity = item.getQuantity();
-            Product product = item.getProduct();
-            product.setQuantity(product.getQuantity() - quantity);
-            productRepository.save(product);
-
-            //Clear the cart
-            cartService.deleteProductFromCart(cart.getCartId(), item.getProduct().getProductId());
-        });
-
-        //Send back the order summary
-        OrderDTO orderDTO = modelMapper.map(savedOrder, OrderDTO.class);
-        orderItems.forEach(item ->
-                orderDTO.getOrderItems().add(
-                        modelMapper.map(item, OrderItemDTO.class)));
-        orderDTO.setAddressId(addressId);
-
-        return orderDTO;
+    // 1. 获取用户购物车与校验
+    Cart cart = cartRepository.findCartByEmail(emailId);
+    if (cart == null) {
+        throw new ResourceNotFoundException("Cart", "email", emailId);
     }
+
+    Address address = addressRepository.findById(addressId)
+            .orElseThrow(() -> new ResourceNotFoundException("Address", "addressId", addressId));
+
+    // 2. 组装订单实体
+    Order order = new Order();
+    order.setEmail(emailId);
+    order.setOrderDate(LocalDate.now());
+
+
+    // A. 将购物车的总价（假设现在是 double 或已经改为 BigDecimal）安全转换为 BigDecimal
+    BigDecimal totalAmount = cart.getTotalPrice();
+    if (totalAmount == null) {
+        totalAmount = BigDecimal.ZERO;
+    }
+    // B. 强制进行内存代码层面的四舍五入，完美收敛并锁死保留两位小数
+    totalAmount = totalAmount.setScale(2, java.math.RoundingMode.HALF_UP);
+
+    // C. 将清洗完美的零缺陷总额安全塞给订单
+    order.setTotalAmount(totalAmount);
+
+
+    order.setOrderStatus("Accepted");
+    order.setAddress(address);
+
+    // 3. 处理并保存支付信息
+    Payment payment = new Payment(paymentMethod, pgPaymentId, pgStatus, pgResponseMessage, pgName);
+    payment.setOrder(order);
+    payment = paymentRepository.save(payment);
+    order.setPayment(payment);
+
+    // 4. 持久化订单主体
+    Order savedOrder = orderRepository.save(order);
+
+    // 5. 将购物车项转换为订单明细
+    List<CartItem> cartItems = cart.getCartItems();
+    if(cartItems.isEmpty()){
+        throw new APIException("Cart is empty");
+    }
+
+    List<OrderItem> orderItems = new ArrayList<>();
+    for(CartItem cartItem : cartItems){
+        OrderItem orderItem = new OrderItem();
+        orderItem.setProduct(cartItem.getProduct());
+        orderItem.setQuantity(cartItem.getQuantity());
+        orderItem.setDiscount(cartItem.getDiscount());
+        orderItem.setOrderedProductPrice(cartItem.getProductPrice());
+        orderItem.setOrder(savedOrder);
+        orderItems.add(orderItem);
+    }
+
+    orderItemRepository.saveAll(orderItems);
+
+    // 6. 扣减商品库存并清空当前购物车
+    cart.getCartItems().forEach(item -> {
+        int quantity = item.getQuantity();
+        Product product = item.getProduct();
+        product.setQuantity(product.getQuantity() - quantity);
+        productRepository.save(product);
+
+        // 清空购物车项
+        cartService.deleteProductFromCart(cart.getCartId(), item.getProduct().getProductId());
+    });
+
+    // 7. 组装并返回 DTO 摘要
+    OrderDTO orderDTO = modelMapper.map(savedOrder, OrderDTO.class);
+    orderItems.forEach(item ->
+            orderDTO.getOrderItems().add(
+                    modelMapper.map(item, OrderItemDTO.class)));
+    orderDTO.setAddressId(addressId);
+
+    return orderDTO;
+}
 
     @Override
     public OrderResponse getAllOrders(Integer pageNumber, Integer pageSize, String sortBy, String sortOrder) {

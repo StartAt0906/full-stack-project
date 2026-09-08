@@ -17,6 +17,7 @@ import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -38,18 +39,17 @@ public class CartServiceImpl implements CartService {
     AuthUtil authUtil;
 
 
-
     @Override
+    @Transactional
     public CartDTO addProductToCart(Long productId, Integer quantity) {
-        //Find existing cart or create one
+        // 1. 获取或创建购物车
         Cart cart = createCart();
 
-        //Retrieve Product Details
+        // 2. 检索商品详情
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product", "productId", productId));
 
-        //Perform Validations
-
+        // 3. 业务校验（库存及重复性校验）
         CartItem cartItem = cartItemRepository.findCartItemByProductIdAndCartId(
                 cart.getCartId(),
                 productId
@@ -66,33 +66,53 @@ public class CartServiceImpl implements CartService {
         if(product.getQuantity() < quantity) {
             throw new APIException("Please make an order of the " + product.getProductName() + " less than or equal to the quantity " + product.getQuantity() + ".");
         }
-        //Create Cart Item
+
+        // 4. 创建并填充购物车明细项（CartItem已支持BigDecimal）
         CartItem newCartItem = new CartItem();
         newCartItem.setProduct(product);
         newCartItem.setCart(cart);
         newCartItem.setQuantity(quantity);
         newCartItem.setDiscount(product.getDiscount());
         newCartItem.setProductPrice(product.getSpecialPrice());
-        //Save Cart Item
+
+        // 保存购物车明细
         cartItemRepository.save(newCartItem);
 
-        product.setQuantity(product.getQuantity());
+        // A. 安全获取购物车当前总价（防止首笔订单为 null 的空指针保护）
+        BigDecimal currentCartTotal = cart.getTotalPrice() != null ? cart.getTotalPrice() : BigDecimal.ZERO;
 
-        cart.setTotalPrice(cart.getTotalPrice() + (product.getSpecialPrice() * quantity));
+        // B. 将新增购买的数量（int）安全转换为 BigDecimal
+        BigDecimal itemQuantity = BigDecimal.valueOf(quantity);
 
+        // C. 计算这笔新增商品的总价 = 产品的折后价 × 购买数量
+        BigDecimal addedProductTotal = product.getSpecialPrice().multiply(itemQuantity);
+
+        // D. 累加计算购物车新总价 = 购物车原总价 + 这一件新增商品的总价
+        BigDecimal newCartTotal = currentCartTotal.add(addedProductTotal);
+
+        // E. 代码运行层面防呆：强制四舍五入保留 2 位小数，死死锁紧精度边界
+        newCartTotal = newCartTotal.setScale(2, java.math.RoundingMode.HALF_UP);
+
+        // F. 将清洗完美的全新总价塞回购物车主体
+        cart.setTotalPrice(newCartTotal);
+
+        // 5. 持久化更新后的购物车状态
         cartRepository.save(cart);
+
+        // 6. 拼装并返回更新后的 DTO 数据
         CartDTO cartDTO = modelMapper.map(cart, CartDTO.class);
         List<CartItem> cartItems = cart.getCartItems();
         Stream<ProductDTO> productStream = cartItems.stream()
                 .map(item -> {
                     ProductDTO map = modelMapper.map(item.getProduct(), ProductDTO.class);
                     map.setQuantity(item.getQuantity());
-                    return map; });
+                    return map;
+                });
 
-        //Return updated cart
         cartDTO.setProducts(productStream.toList());
         return cartDTO;
     }
+
 
     @Override
     public List<CartDTO> getAllCarts() {
@@ -129,8 +149,9 @@ public class CartServiceImpl implements CartService {
         return cartDTO;
     }
 
-    @Override@Transactional
 
+    @Transactional
+    @Override
     public CartDTO updateProductQuantityInCart(Long productId, Integer quantity) {
         String emailId = authUtil.loggedInEmail();
         Cart userCart = cartRepository.findCartByEmail(emailId);
@@ -151,27 +172,45 @@ public class CartServiceImpl implements CartService {
         if(cartItem == null) {
             throw new APIException("Product " + product.getProductName() + " is not available");
         }
+
+        // 计算变更后的新数量（支持传入正数增加数量，传入负数减少数量）
         int newQuantity = cartItem.getQuantity() + quantity;
         if(newQuantity < 0) {
-            throw new  APIException("The result quantity cannot be negative!");
+            throw new APIException("The result quantity cannot be negative!");
         }
+
         if(newQuantity == 0) {
+            // 数量减到0，直接调用删除方法从购物车移除商品
             deleteProductFromCart(cartId, productId);
         } else {
             cartItem.setProductPrice(product.getSpecialPrice());
-            cartItem.setQuantity(cartItem.getQuantity() + quantity);
+            cartItem.setQuantity(newQuantity); // 同步更新数量
             cartItem.setDiscount(product.getDiscount());
-            cart.setTotalPrice(cart.getTotalPrice() + (cartItem.getProductPrice() * quantity));
+
+            // A. 安全获取购物车当前总价（防空保护）
+            BigDecimal currentCartTotal = cart.getTotalPrice() != null ? cart.getTotalPrice() : BigDecimal.ZERO;
+
+            // B. 将变动变动的数量因子（可正可负）安全转换为 BigDecimal
+            BigDecimal quantityDelta = BigDecimal.valueOf(quantity);
+
+            // C. 计算此次数量变动所导致的总价变动差值 = 商品折后特价 × 数量变动因子
+            BigDecimal priceChange = cartItem.getProductPrice().multiply(quantityDelta);
+
+            // D. 累加计算购物车全新总价 = 原总价 + 价格变动差值
+            BigDecimal newCartTotal = currentCartTotal.add(priceChange);
+
+            // E. 代码运行层面防呆：强制四舍五入并锁死保留两位小数
+            newCartTotal = newCartTotal.setScale(2, java.math.RoundingMode.HALF_UP);
+
+            // F. 写回购物车主体
+            cart.setTotalPrice(newCartTotal);
+
             cartRepository.save(cart);
         }
-        //cartItemRepository.save(cartItem);
-//        if(updatedItem.getQuantity() == 0) {
-//            cartItemRepository.deleteById(updatedItem.getCartItemId());
-//        }
+
+        // 拼装并返回更新后的 DTO 数据
         CartDTO cartDTO = modelMapper.map(cart, CartDTO.class);
         List<CartItem> cartItems = cart.getCartItems();
-
-
 
         Stream<ProductDTO> productStream = cartItems.stream().map(item -> {
             ProductDTO prd = modelMapper.map(item.getProduct(), ProductDTO.class);
@@ -182,25 +221,37 @@ public class CartServiceImpl implements CartService {
         cartDTO.setProducts(productStream.toList());
         return cartDTO;
     }
-
     @Transactional
-    @Override
-    public String deleteProductFromCart(Long cartId, Long productId) {
-        Cart cart = cartRepository.findById(cartId)
-                .orElseThrow(() -> new ResourceNotFoundException("Cart", "cartId", cartId));
-        CartItem cartItem = cartItemRepository.findCartItemByProductIdAndCartId(cartId, productId);
+@Override
+public String deleteProductFromCart(Long cartId, Long productId) {
+    Cart cart = cartRepository.findById(cartId)
+            .orElseThrow(() -> new ResourceNotFoundException("Cart", "cartId", cartId));
+    CartItem cartItem = cartItemRepository.findCartItemByProductIdAndCartId(cartId, productId);
 
-        if(cartItem == null) {
-            throw new  ResourceNotFoundException("Product", "productId", productId);
-        }
-
-        cart.setTotalPrice(cart.getTotalPrice() - (cartItem.getProductPrice() * cartItem.getQuantity()));
-        cartItemRepository.deleteCartItemByProductIdAndCartId(cartId, productId);
-
-        return "Product " + cartItem.getProduct().getProductName() + " has been deleted";
+    if(cartItem == null) {
+        throw new ResourceNotFoundException("Product", "productId", productId);
     }
 
+    BigDecimal currentCartTotal = cart.getTotalPrice() != null ? cart.getTotalPrice() : BigDecimal.ZERO;
+    BigDecimal itemQuantity = BigDecimal.valueOf(cartItem.getQuantity());
+
+    // 计算被删除商品的总价 = 单价 × 数量
+    BigDecimal removedProductTotal = cartItem.getProductPrice().multiply(itemQuantity);
+
+    // 购物车新总价 = 原总价 - 被删除商品总价
+    BigDecimal newCartTotal = currentCartTotal.subtract(removedProductTotal);
+    newCartTotal = newCartTotal.setScale(2, java.math.RoundingMode.HALF_UP);
+
+    cart.setTotalPrice(newCartTotal);
+
+
+    cartItemRepository.deleteCartItemByProductIdAndCartId(cartId, productId);
+
+    return "Product " + cartItem.getProduct().getProductName() + " has been deleted";
+}
+
     @Override
+    @Transactional
     public void updateProductInCarts(Long cartId, Long productId) {
         Cart cart = cartRepository.findById(cartId)
                 .orElseThrow(() -> new ResourceNotFoundException("Cart", "cartId", cartId));
@@ -211,49 +262,64 @@ public class CartServiceImpl implements CartService {
             throw new APIException("Product " + product.getProductName() + " is not available");
         }
 
-        double cartPrice = cart.getTotalPrice() -
-                (cartItem.getProductPrice() * cartItem.getQuantity());
 
+        BigDecimal currentCartTotal = cart.getTotalPrice() != null ? cart.getTotalPrice() : BigDecimal.ZERO;
+        BigDecimal itemQuantity = BigDecimal.valueOf(cartItem.getQuantity());
+
+        // Step 1: 减去当前条目的旧小计 (旧单价 × 数量)
+        BigDecimal oldItemTotal = cartItem.getProductPrice().multiply(itemQuantity);
+        BigDecimal cartPriceWithoutItem = currentCartTotal.subtract(oldItemTotal);
+
+        // Step 2: 更新条目为商品最新的折后特价
         cartItem.setProductPrice(product.getSpecialPrice());
 
-        cart.setTotalPrice(cartPrice +
-                (cartItem.getProductPrice() * cartItem.getQuantity()));
+        // Step 3: 加上该条目的新小计 (新单价 × 数量)
+        BigDecimal newItemTotal = cartItem.getProductPrice().multiply(itemQuantity);
+        BigDecimal newCartTotal = cartPriceWithoutItem.add(newItemTotal);
 
-        cartItem = cartItemRepository.save(cartItem);
+        // 强制收敛标度
+        newCartTotal = newCartTotal.setScale(2, java.math.RoundingMode.HALF_UP);
+        cart.setTotalPrice(newCartTotal);
+
+        cartItemRepository.save(cartItem);
     }
 
     @Transactional
     @Override
     public String createOrUpdateWithItems(List<CartItemDTO> cartItems) {
-        //Get user's email
+        // Get user's email
         String emailId = authUtil.loggedInEmail();
 
-        //Check if an existing cart is available or create a new one
+        // Check if an existing cart is available or create a new one
         Cart existingCart = cartRepository.findCartByEmail(emailId);
         if (existingCart == null) {
             existingCart = new Cart();
-            existingCart.setTotalPrice(0.00);
+            existingCart.setTotalPrice(BigDecimal.ZERO); // 🟢 初始化为精确的 BigDecimal.ZERO
             existingCart.setUser(authUtil.loggedInUser());
             existingCart = cartRepository.save(existingCart);
         } else {
-            //Clear all current items in the existing cart
+            // Clear all current items in the existing cart
             cartItemRepository.deleteAllByCartId(existingCart.getCartId());
         }
-        double totalPrice = 0.0;
-        //Process each item in the request to add to the cart
+
+        // 🟢 初始化总价累加器
+        BigDecimal totalPrice = BigDecimal.ZERO;
+
+        // Process each item in the request to add to the cart
         for (CartItemDTO cartItemDTO : cartItems) {
             Long productId = cartItemDTO.getProductId();
             Integer quantity = cartItemDTO.getQuantity();
 
-            //Find the product by ID
+            // Find the product by ID
             Product product = productRepository.findById(productId)
                     .orElseThrow(() -> new ResourceNotFoundException("Product", "productId", productId));
 
-            //Directly update product stock and total price
-            //product.setQuantity(product.getQuantity() -  quantity);
-            totalPrice += product.getSpecialPrice() * quantity;
 
-            //Create and save cart item
+            BigDecimal itemQuantity = BigDecimal.valueOf(quantity);
+            BigDecimal itemTotal = product.getSpecialPrice().multiply(itemQuantity);
+            totalPrice = totalPrice.add(itemTotal);
+
+            // Create and save cart item
             CartItem cartItem = new CartItem();
             cartItem.setProduct(product);
             cartItem.setCart(existingCart);
@@ -263,8 +329,10 @@ public class CartServiceImpl implements CartService {
             cartItemRepository.save(cartItem);
         }
 
-        //Update the cart's total price and save
+
+        totalPrice = totalPrice.setScale(2, java.math.RoundingMode.HALF_UP);
         existingCart.setTotalPrice(totalPrice);
+
         cartRepository.save(existingCart);
         return "Cart created/updated with new items successfully.";
     }
@@ -275,9 +343,9 @@ public class CartServiceImpl implements CartService {
             return userCart;
         }
         Cart cart = new Cart();
-        cart.setTotalPrice(0.00);
+        cart.setTotalPrice(BigDecimal.ZERO); // 🟢 初始化为精确的 BigDecimal.ZERO
         cart.setUser(authUtil.loggedInUser());
         return cartRepository.save(cart);
-
     }
+
 }

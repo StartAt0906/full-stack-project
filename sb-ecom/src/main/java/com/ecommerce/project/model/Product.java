@@ -7,6 +7,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.ToString;
+
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -30,10 +32,17 @@ public class Product {
     @Size(min = 6, message = "Description cannot less than six")
     private String description;
     private Integer quantity;
-    private double price;
-    private double discount;
-    private double specialPrice;
+//    private double price;
+//    private double discount;
+//    private double specialPrice;
+    @Column(name = "price", precision = 10, scale = 2)
+    private BigDecimal price;
 
+    @Column(name = "discount", precision = 5, scale = 2)
+    private BigDecimal discount;
+
+    @Column(name = "special_price", precision = 10, scale = 2)
+    private BigDecimal specialPrice;
     @ManyToOne
     @JoinColumn(name = "category_id")
     private Category category;

@@ -128,12 +128,12 @@ public class WebSecurityConfig {
             Set<Role> adminRoles = new HashSet<>(Set.of(userRole, sellerRole, adminRole));
 
             if (!userRepository.existsByUsername("user1")) {
-                User user1 = new User("user1", passwordEncoder().encode("password1"), "user1@example.com" );
+                User user1 = new User("user1", passwordEncoder.encode("password1"), "user1@example.com" );
                 userRepository.save(user1);
             }
 
             if (!userRepository.existsByUsername("seller1")) {
-                User seller1 = new User("seller1", passwordEncoder().encode("password2"), "seller1@example.com");
+                User seller1 = new User("seller1", passwordEncoder.encode("password2"), "seller1@example.com");
                 userRepository.save(seller1);
             }
 

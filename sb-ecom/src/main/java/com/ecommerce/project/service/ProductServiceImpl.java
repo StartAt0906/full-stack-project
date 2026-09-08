@@ -25,6 +25,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 
 @Service
@@ -38,8 +40,6 @@ public class ProductServiceImpl implements ProductService {
 
     @Autowired
     private ModelMapper modelMapper;
-//    @Autowired
-//    private ProductService productService;
 
     @Autowired
     private FileService fileService;
@@ -75,17 +75,14 @@ public class ProductServiceImpl implements ProductService {
         }
         if(isProductNotFound) {
             Product product = modelMapper.map(productDTO, Product.class);
-            //Product existProduct = productRepository.findByProductName(product.getProductName());
-//        if (existProduct != null) {
-//            throw new APIException("Product already exists");
-//        }
+
 
             product.setImage("default.png");
             product.setCategory(category);
             product.setUser(authUtil.loggedInUser());
-            double specialPrice = product.getPrice() -
-                    (product.getDiscount() * 0.01 * product.getPrice());
-            product.setSpecialPrice(specialPrice);
+            BigDecimal specialPrice = product.getPrice().subtract(product.getDiscount());
+            product.setSpecialPrice(specialPrice.setScale(2, RoundingMode.HALF_UP));
+
             Product savedProduct = productRepository.save(product);
             return modelMapper.map(savedProduct, ProductDTO.class);
         } else {
@@ -143,7 +140,6 @@ public class ProductServiceImpl implements ProductService {
         Category category = categoryRepository.findById(categoryId)
                 .orElseThrow(() -> new ResourceNotFoundException("Category", "categoryId", categoryId));
 
-        //List<Product> products = productRepository.findByCategoryOrderByPriceAsc(category);
         Sort sortByAndOrder = sortOrder.equalsIgnoreCase("asc")
                 ? Sort.by(sortBy).ascending()
                 :Sort.by(sortBy).descending();
@@ -177,7 +173,6 @@ public class ProductServiceImpl implements ProductService {
         if(products.isEmpty()){
             throw new APIException("Product not found with keyword" +  keyword);
         }
-        //List<Product> products = productRepository.findByProductNameLikeIgnoreCase('%' + keyword + '%', pageDetails);
         List<ProductDTO> productDTOS = products.stream()
                 .map(product -> modelMapper.map(product, ProductDTO.class))
                 .toList();

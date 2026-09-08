@@ -20,6 +20,23 @@ public class AuthUtil {
 
         return user.getEmail();
     }
+//public String loggedInEmail() {
+//    Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+//    if (authentication == null || "anonymousUser".equals(authentication.getName())) {
+//        return null;
+//    }
+//
+//
+//    if (authentication.getPrincipal() instanceof UserDetailsImpl userDetails) {
+//        return userDetails.getEmail();
+//    }
+//
+//
+//    return userRepository.findByUsername(authentication.getName())
+//            .map(User::getEmail)
+//            .orElseThrow(() -> new UsernameNotFoundException("User not found with name: " + authentication.getName()));
+//}
+
 
     public User loggedInUser() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
