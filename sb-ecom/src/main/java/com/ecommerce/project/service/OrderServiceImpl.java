@@ -71,7 +71,7 @@ public OrderDTO placeOrder(String emailId, Long addressId, String paymentMethod,
     order.setOrderDate(LocalDate.now());
 
 
-    // A. 将购物车的总价（假设现在是 double 或已经改为 BigDecimal）安全转换为 BigDecimal
+    // A. 将购物车的总价安全转换为 BigDecimal
     BigDecimal totalAmount = cart.getTotalPrice();
     if (totalAmount == null) {
         totalAmount = BigDecimal.ZERO;
@@ -81,8 +81,6 @@ public OrderDTO placeOrder(String emailId, Long addressId, String paymentMethod,
 
     // C. 将清洗完美的零缺陷总额安全塞给订单
     order.setTotalAmount(totalAmount);
-
-
     order.setOrderStatus("Accepted");
     order.setAddress(address);
 
@@ -114,16 +112,23 @@ public OrderDTO placeOrder(String emailId, Long addressId, String paymentMethod,
 
     orderItemRepository.saveAll(orderItems);
 
-    // 6. 扣减商品库存并清空当前购物车
-    cart.getCartItems().forEach(item -> {
-        int quantity = item.getQuantity();
-        Product product = item.getProduct();
-        product.setQuantity(product.getQuantity() - quantity);
-        productRepository.save(product);
 
-        // 清空购物车项
-        cartService.deleteProductFromCart(cart.getCartId(), item.getProduct().getProductId());
-    });
+    // 6. 【核心重构】利用 MySQL 行级锁与状态限制防超卖，并进行批量事务控制
+for (CartItem item : cart.getCartItems()) {
+    int buyQuantity = item.getQuantity();
+    Long productId = item.getProduct().getProductId();
+
+    //核心原子扣减：利用数据库排他锁，扣减成功返回 1，失败返回 0
+    int rowsAffected = productRepository.decreaseStockWithLock(productId, buyQuantity);
+
+    if (rowsAffected == 0) {
+        //抛出异常触发 @Transactional 全盘回滚，确保订单不创建、购物车不被清空
+        throw new APIException("商品 [" + item.getProduct().getProductName() + "] 库存不足，抢购失败！");
+    }
+
+    // 清空购物车项
+    cartService.deleteProductFromCart(cart.getCartId(), productId);
+}
 
     // 7. 组装并返回 DTO 摘要
     OrderDTO orderDTO = modelMapper.map(savedOrder, OrderDTO.class);
