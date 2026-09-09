@@ -50,30 +50,40 @@ export const fetchCategories = () => async (dispatch) => {
     }
 };
 
+
 export const addToCart = (data, qty = 1, toast) => 
     (dispatch, getState) => {
 
-        //console.log(getState());
-        //Find the product
         const { products } = getState().products;
-
-       
         const getProduct = products.find(
             (item) => item.productId === data.productId
         );
 
-        //Check for stocks
+        // 1. 前端初步校验库存
         const isQuantityExist = getProduct.quantity >= qty;
 
-        //If in stock -> add
         if (isQuantityExist) {
-            dispatch({ type: "ADD_CART", payload: {...data, quantity: qty}});
-            toast.success(`${data?.productName} added to the cart`);
-            localStorage.setItem("cartItems", JSON.stringify(getState().carts.cart));
+            const url = `/carts/products/${data.productId}/quantity/${qty}`;
+            api.post(url)
+                .then((response) => {
+                    // 2. 后端成功写入 MySQL 数据库后，前端再同步更新 Redux 和本地缓存
+                    dispatch({ type: "ADD_CART", payload: { ...data, quantity: qty } });
+                    toast.success(`${data?.productName} 成功加入购物车！`);
+                    localStorage.setItem("cartItems", JSON.stringify(getState().carts.cart));
+                    
+                    console.log("后端返回的最全新购物车数据：", response.data);
+                })
+                .catch((error) => {
+                    // 3. 拦截后端抛出的自定义错误信息
+                    const errorMsg = error.response?.data?.message || "加入购物车失败，请重试";
+                    toast.error(errorMsg);
+                });
+
         } else {
-            toast.error("Out of stock");
+            toast.error("商品库存不足 (Out of stock)");
         }   
 };
+
 
 export const increseCartQuantity = 
     (data, toast, currentQuantity, setCurrentQuantity) =>
