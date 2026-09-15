@@ -13,4 +13,6 @@ public interface OrderService {
     OrderDTO updateOrder(long orderId, String status);
 
     OrderResponse getAllSellerOrders(Integer pageNumber, Integer pageSize, String sortBy, String sortOrder);
+
+    void confirmStripePayment(String paymentIntentId);
 }

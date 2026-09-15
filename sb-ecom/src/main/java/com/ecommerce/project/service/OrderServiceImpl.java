@@ -1,5 +1,6 @@
 package com.ecommerce.project.service;
 
+import com.ecommerce.project.config.AppConstants;
 import com.ecommerce.project.exceptions.APIException;
 import com.ecommerce.project.exceptions.ResourceNotFoundException;
 import com.ecommerce.project.model.*;
@@ -11,6 +12,7 @@ import com.ecommerce.project.util.AuthUtil;
 import jakarta.transaction.Transactional;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -51,6 +53,9 @@ public class OrderServiceImpl implements OrderService {
     @Autowired
     AuthUtil authUtil;
 
+    @Autowired
+    StripeIdempotencyService stripeIdempotencyService;
+
 
 @Transactional
 @Override
@@ -81,7 +86,7 @@ public OrderDTO placeOrder(String emailId, Long addressId, String paymentMethod,
 
     // C. 将清洗完美的零缺陷总额安全塞给订单
     order.setTotalAmount(totalAmount);
-    order.setOrderStatus("Accepted");
+    order.setOrderStatus(AppConstants.ORDER_STATUS_ACCEPTED);
     order.setAddress(address);
 
     // 3. 处理并保存支付信息
@@ -92,6 +97,7 @@ public OrderDTO placeOrder(String emailId, Long addressId, String paymentMethod,
 
     // 4. 持久化订单主体
     Order savedOrder = orderRepository.save(order);
+        applyStripeWebhookConfirmationIfPresent(savedOrder, pgPaymentId);
 
     // 5. 将购物车项转换为订单明细
     List<CartItem> cartItems = cart.getCartItems();
@@ -195,5 +201,41 @@ for (CartItem item : cart.getCartItems()) {
         return orderResponse;
     }
 
+    @Override
+    @Transactional
+    public void confirmStripePayment(String paymentIntentId) {
+        if (paymentIntentId == null || paymentIntentId.isBlank()) {
+            return;
+        }
+        try {
+            stripeIdempotencyService.recordSucceededPaymentIntent(paymentIntentId);
+        } catch (DataIntegrityViolationException ignored) {
+            // unique payment_intent_id: another webhook already recorded success
+        }
+        orderRepository.findByPayment_PgPaymentId(paymentIntentId)
+                .ifPresent(this::markOrderPaid);
+    }
 
+    private void applyStripeWebhookConfirmationIfPresent(Order order, String pgPaymentId) {
+        if (pgPaymentId == null || pgPaymentId.isBlank()) {
+            return;
+        }
+        if (stripeIdempotencyService.isPaymentIntentAlreadySucceeded(pgPaymentId)) {
+            markOrderPaid(order);
+        }
+    }
+
+    private void markOrderPaid(Order order) {
+        if (AppConstants.ORDER_STATUS_PAID.equals(order.getOrderStatus())) {
+            return;
+        }
+        order.setOrderStatus(AppConstants.ORDER_STATUS_PAID);
+        Payment payment = order.getPayment();
+        if (payment != null) {
+            payment.setPgStatus(AppConstants.STRIPE_PAYMENT_SUCCEEDED);
+            payment.setPgResponseMessage("Confirmed by Stripe webhook");
+            paymentRepository.save(payment);
+        }
+        orderRepository.save(order);
+    }
 }
