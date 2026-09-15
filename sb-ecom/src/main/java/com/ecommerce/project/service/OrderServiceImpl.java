@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -73,7 +74,7 @@ public OrderDTO placeOrder(String emailId, Long addressId, String paymentMethod,
     // 2. 组装订单实体
     Order order = new Order();
     order.setEmail(emailId);
-    order.setOrderDate(LocalDate.now());
+    order.setOrderDate(LocalDateTime.now());
 
 
     // A. 将购物车的总价安全转换为 BigDecimal
