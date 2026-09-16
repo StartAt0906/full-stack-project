@@ -217,6 +217,11 @@ for (CartItem item : cart.getCartItems()) {
                 .ifPresent(this::markOrderPaid);
     }
 
+    @Override
+    public Order getOrderById(Long orderId) {
+        return orderRepository.findById(orderId).orElse(null);
+    }
+
     private void applyStripeWebhookConfirmationIfPresent(Order order, String pgPaymentId) {
         if (pgPaymentId == null || pgPaymentId.isBlank()) {
             return;

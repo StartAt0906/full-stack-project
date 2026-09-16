@@ -76,6 +76,8 @@ public class WebSecurityConfig {
                 .requestMatchers("/images/**").permitAll()
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/api/v1/stripe/webhook").permitAll()
+                .requestMatchers("/api/v1/order/stripe-client-secret").permitAll()
+
                 .anyRequest().authenticated());
         //http.cors(withDefaults());
         http.cors(cors-> {});

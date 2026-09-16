@@ -1,5 +1,6 @@
 package com.ecommerce.project.service;
 
+import com.ecommerce.project.model.Order;
 import com.ecommerce.project.payload.OrderDTO;
 import com.ecommerce.project.payload.OrderResponse;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,4 +16,6 @@ public interface OrderService {
     OrderResponse getAllSellerOrders(Integer pageNumber, Integer pageSize, String sortBy, String sortOrder);
 
     void confirmStripePayment(String paymentIntentId);
+
+    Order getOrderById(Long orderId);
 }
