@@ -1,7 +1,6 @@
 package com.ecommerce.project.controller;
 
 import com.ecommerce.project.service.AiRecommendService;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import reactor.core.publisher.Flux;
@@ -10,8 +9,13 @@ import reactor.core.publisher.Flux;
 @RequestMapping("/api/ai")
 public class AiRecommendController {
 
-    @Autowired
-    private AiRecommendService aiRecommendService;
+
+    private final AiRecommendService aiRecommendService;
+    public AiRecommendController(AiRecommendService aiRecommendService) {
+        this.aiRecommendService = aiRecommendService;
+    }
+
+
 
     // 1. 刷新商品向量库接口
     @PostMapping("/sync")
