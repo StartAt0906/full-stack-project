@@ -12,6 +12,8 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
+
 @Repository
 public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpecificationExecutor<Product> {
     Page<Product> findByCategoryOrderByPriceAsc(Category category, Pageable pageDetails);
@@ -31,4 +33,5 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("UPDATE Product p SET p.quantity = p.quantity + :returnQty WHERE p.productId = :productId")
     int increaseStock(@Param("productId") Long productId, @Param("returnQty") Integer returnQty);
 
+    List<Product> findByProductIdIn(List<Long> productIds);
 }

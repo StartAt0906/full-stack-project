@@ -8,6 +8,7 @@ import com.ecommerce.project.repositories.UserRepository;
 import com.ecommerce.project.security.jwt.AuthEntryPointJwt;
 import com.ecommerce.project.security.jwt.AuthTokenFilter;
 import com.ecommerce.project.security.services.UserDetailsServiceImpl;
+import com.ecommerce.project.service.AiRecommendService;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.CommandLineRunner;
@@ -77,7 +78,7 @@ public class WebSecurityConfig {
                 .requestMatchers("/error").permitAll()
                 .requestMatchers("/api/v1/stripe/webhook").permitAll()
                 .requestMatchers("/api/v1/order/stripe-client-secret").permitAll()
-
+                .requestMatchers("/api/ai/**").permitAll()
                 .anyRequest().authenticated());
         //http.cors(withDefaults());
         http.cors(cors-> {});
@@ -109,7 +110,8 @@ public class WebSecurityConfig {
     @Transactional
     public CommandLineRunner initData(RoleRepository roleRepository,
                                       UserRepository userRepository,
-                                      PasswordEncoder passwordEncoder) {
+                                      PasswordEncoder passwordEncoder,
+                                      AiRecommendService aiRecommendService) {
         return args -> {
             Role userRole = roleRepository.findByRoleName(AppRole.ROLE_USER)
                     .orElseGet(() -> {
@@ -166,6 +168,15 @@ public class WebSecurityConfig {
                 admin.getRoles().clear();
                 admin.getRoles().addAll(adminRoles);
             });
+
+            try {
+                System.out.println("====== [AI] 正在开始异步同步商品数据至内存向量库... ======");
+                aiRecommendService.syncProductsToVectorDb();
+                System.out.println("====== [AI] 商品数据向量化同步成功！ ======");
+            } catch (Exception e) {
+                System.err.println("====== [AI] 向量同步失败，请检查 application.properties 的 API-Key 是否正确！ ======");
+                e.printStackTrace();
+            }
         };
     }
 }

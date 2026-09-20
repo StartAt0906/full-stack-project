@@ -31,7 +31,9 @@ public class AuthTokenFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        return "/api/v1/stripe/webhook".equals(request.getServletPath());
+        return "/api/v1/stripe/webhook".equals(request.getServletPath())
+                || request.getServletPath().startsWith("/api/ai/");
+
     }
 
     @Override

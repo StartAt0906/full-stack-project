@@ -594,14 +594,5 @@ export const stripePaymentConfirmation
 
 
 
-
-
-
-
-
-
-
-
-
 export default fetchAllSellers;
    
