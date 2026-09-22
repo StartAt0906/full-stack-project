@@ -32,9 +32,7 @@ public class Product {
     @Size(min = 6, message = "Description cannot less than six")
     private String description;
     private Integer quantity;
-//    private double price;
-//    private double discount;
-//    private double specialPrice;
+
     @Column(name = "price", precision = 10, scale = 2)
     private BigDecimal price;
 

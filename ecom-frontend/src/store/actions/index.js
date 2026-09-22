@@ -94,46 +94,81 @@ export const addToCart = (data, qty = 1, toast) =>
 };
 
 
+export const removeFromCart = (data, toast) => (dispatch, getState) => {
+    // 假设你的 api 配置了基础路径，这里调用你在 Controller 新加的 DELETE 接口
+    // 如果你的后端不需要显式传 cartId，请把接口调整为 `/carts/products/${data.productId}`
+    const url = `/carts/products/${data.productId}`; 
+    
+    api.delete(url)
+        .then((response) => {
+            // 数据库删除成功后，再清理前端内存和本地缓存
+            dispatch({ type: "REMOVE_CART", payload: data });
+            toast.success(`${data.productName} 成功从购物车移除`);
+            localStorage.setItem("cartItems", JSON.stringify(getState().carts.cart));
+        })
+        .catch((error) => {
+            const errorMsg = error.response?.data?.message || "删除商品失败，请重试";
+            toast.error(errorMsg);
+        });
+};
+
+// 2. 🔥 彻底修复【数量增加】：点击 + 号时，同步通知后端数据库
 export const increseCartQuantity = 
     (data, toast, currentQuantity, setCurrentQuantity) =>
     (dispatch, getState) => {
         const { products } = getState().products;
-
-        const getProduct = products.find(
-            (item) => item.productId === data.productId
-        );
-        
+        const getProduct = products.find((item) => item.productId === data.productId);
         const isQuantityExist = getProduct?.quantity >= currentQuantity + 1;
 
         if (isQuantityExist) {
             const newQuantity = currentQuantity + 1;
-            setCurrentQuantity(newQuantity);
-
-            dispatch({
-                type: "ADD_CART",
-                payload: {...data, quantity: newQuantity},
-            });
-            localStorage.setItem("cartItems", JSON.stringify(getState().carts.cart));
+            
+            // 🚀 发送 PUT 请求，通知后端数据库数量 +1（传入增量 1）
+            api.put(`/carts/products/${data.productId}/quantity/1`)
+                .then(() => {
+                    setCurrentQuantity(newQuantity);
+                    dispatch({
+                        type: "ADD_CART",
+                        payload: { ...data, quantity: newQuantity },
+                    });
+                    localStorage.setItem("cartItems", JSON.stringify(getState().carts.cart));
+                })
+                .catch((error) => {
+                    toast.error(error.response?.data?.message || "修改数量失败");
+                });
         } else {
-            toast.error("Quantity Reached to Limit");
+            toast.error("商品数量已达库存上限");
         }
     };
 
-
-export const decreaseCartQuantity = (data, newQuantity) => (dispatch, getState) => {
-        dispatch({
-            type: "ADD_CART",
-            payload: {...data, quantity: newQuantity},
-        });
-        localStorage.setItem("cartItems", JSON.stringify(getState().carts.cart));
-    }
-
-export const removeFromCart = (data, toast) => (dispatch, getState) => {
-    dispatch({type: "REMOVE_CART", payload: data});
-    toast.success(`${data.productName} removed from cart`);
-    localStorage.setItem("cartItems", JSON.stringify(getState().carts.cart));
-}
-
+// 3. 🔥 彻底修复【数量减少】：点击 - 号时，同步通知后端数据库
+export const decreaseCartQuantity = 
+    (data, newQuantity, currentQuantity, setCurrentQuantity, toast) => 
+    (dispatch, getState) => {
+        
+        // 🚀 发送 PUT 请求，通知后端数据库数量 -1（传入增量 -1）
+        api.put(`/carts/products/${data.productId}/quantity/-1`)
+            .then((response) => {
+                // 如果减到 0，后端在你的重构下会触发删除并返回更新后的购物车 DTO
+                setCurrentQuantity(newQuantity);
+                
+                if (newQuantity === 0) {
+                    // 如果减到 0 了，前端同步触发 REMOVE_CART
+                    dispatch({ type: "REMOVE_CART", payload: data });
+                    toast.success(`${data.productName} 已从购物车移除`);
+                } else {
+                    dispatch({
+                        type: "ADD_CART",
+                        payload: { ...data, quantity: newQuantity },
+                    });
+                }
+                localStorage.setItem("cartItems", JSON.stringify(getState().carts.cart));
+                console.log("数量扣减后，最新购物车数据：", response.data);
+            })
+            .catch((error) => {
+                toast.error(error.response?.data?.message || "扣减数量失败");
+            });
+    };
 export const authenticateSignInUser 
     = (sendData, toast, reset, navigate, setLoader) => async (dispatch) => {
         try {

@@ -25,9 +25,16 @@ public class Cart {
     @JoinColumn(name = "user_id")
     private User user;
 
-    @OneToMany(mappedBy = "cart", cascade = {CascadeType.PERSIST, CascadeType.MERGE, CascadeType.REMOVE}, orphanRemoval = true)
+    @OneToMany(mappedBy = "cart", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<CartItem> cartItems = new ArrayList<>();
 
     @Column(name = "total_price", precision = 10, scale = 2)
     private BigDecimal totalPrice = BigDecimal.ZERO;
+
+    public void removeCartItem(CartItem cartItem) {
+        if (cartItem != null) {
+            this.cartItems.remove(cartItem);
+            cartItem.setCart(null); // 🔥 必须切断子表对主表的引用
+        }
+    }
 }

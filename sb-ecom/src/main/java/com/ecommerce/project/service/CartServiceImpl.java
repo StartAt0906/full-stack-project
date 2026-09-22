@@ -12,12 +12,15 @@ import com.ecommerce.project.repositories.CartItemRepository;
 import com.ecommerce.project.repositories.CartRepository;
 import com.ecommerce.project.repositories.ProductRepository;
 import com.ecommerce.project.util.AuthUtil;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import jakarta.transaction.Transactional;
 import org.modelmapper.ModelMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -37,6 +40,9 @@ public class CartServiceImpl implements CartService {
 
     @Autowired
     AuthUtil authUtil;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
 
     @Override
@@ -173,81 +179,100 @@ public class CartServiceImpl implements CartService {
             throw new APIException("Product " + product.getProductName() + " is not available");
         }
 
-        // 计算变更后的新数量（支持传入正数增加数量，传入负数减少数量）
         int newQuantity = cartItem.getQuantity() + quantity;
         if(newQuantity < 0) {
             throw new APIException("The result quantity cannot be negative!");
         }
 
+        // 🔥【核心重构点 1】：如果数量减到 0
         if(newQuantity == 0) {
-            // 数量减到0，直接调用删除方法从购物车移除商品
+            // 1. 调用删除方法，该方法会自动扣减总价、删除明细并 save(cart)
             deleteProductFromCart(cartId, productId);
-        } else {
-            cartItem.setProductPrice(product.getSpecialPrice());
-            cartItem.setQuantity(newQuantity); // 同步更新数量
-            cartItem.setDiscount(product.getDiscount());
+            entityManager.clear();
+            Cart updatedCart = cartRepository.findById(cartId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Cart", "cartId", cartId));
 
-            // A. 安全获取购物车当前总价（防空保护）
-            BigDecimal currentCartTotal = cart.getTotalPrice() != null ? cart.getTotalPrice() : BigDecimal.ZERO;
+            // 3. 构建并返回
+            CartDTO cartDTO = modelMapper.map(updatedCart, CartDTO.class);
+            // 如果整个购物车都空了，直接给空列表；如果还有其他商品，转为 DTO 列表
+            List<ProductDTO> products = updatedCart.getCartItems().stream()
+                    .map(item -> {
+                        ProductDTO prd = modelMapper.map(item.getProduct(), ProductDTO.class);
+                        prd.setQuantity(item.getQuantity());
+                        return prd;
+                    }).toList();
 
-            // B. 将变动变动的数量因子（可正可负）安全转换为 BigDecimal
-            BigDecimal quantityDelta = BigDecimal.valueOf(quantity);
-
-            // C. 计算此次数量变动所导致的总价变动差值 = 商品折后特价 × 数量变动因子
-            BigDecimal priceChange = cartItem.getProductPrice().multiply(quantityDelta);
-
-            // D. 累加计算购物车全新总价 = 原总价 + 价格变动差值
-            BigDecimal newCartTotal = currentCartTotal.add(priceChange);
-
-            // E. 代码运行层面防呆：强制四舍五入并锁死保留两位小数
-            newCartTotal = newCartTotal.setScale(2, java.math.RoundingMode.HALF_UP);
-
-            // F. 写回购物车主体
-            cart.setTotalPrice(newCartTotal);
-
-            cartRepository.save(cart);
+            cartDTO.setProducts(products);
+            return cartDTO;
         }
+
+        cartItem.setProductPrice(product.getSpecialPrice());
+        cartItem.setQuantity(newQuantity);
+        cartItem.setDiscount(product.getDiscount());
+
+        BigDecimal currentCartTotal = cart.getTotalPrice() != null ? cart.getTotalPrice() : BigDecimal.ZERO;
+        BigDecimal quantityDelta = BigDecimal.valueOf(quantity);
+        BigDecimal priceChange = cartItem.getProductPrice().multiply(quantityDelta);
+        BigDecimal newCartTotal = currentCartTotal.add(priceChange);
+        newCartTotal = newCartTotal.setScale(2, java.math.RoundingMode.HALF_UP);
+
+        cart.setTotalPrice(newCartTotal);
+
+        // 强制同步保存
+        cartRepository.saveAndFlush(cart);
 
         // 拼装并返回更新后的 DTO 数据
         CartDTO cartDTO = modelMapper.map(cart, CartDTO.class);
         List<CartItem> cartItems = cart.getCartItems();
 
-        Stream<ProductDTO> productStream = cartItems.stream().map(item -> {
-            ProductDTO prd = modelMapper.map(item.getProduct(), ProductDTO.class);
-            prd.setQuantity(item.getQuantity());
-            return prd;
-        });
+        // 过滤掉那些可能在并发下数量异常的条目，只流化真实存在的商品
+        Stream<ProductDTO> productStream = cartItems.stream()
+                .filter(item -> item.getQuantity() > 0)
+                .map(item -> {
+                    ProductDTO prd = modelMapper.map(item.getProduct(), ProductDTO.class);
+                    prd.setQuantity(item.getQuantity());
+                    return prd;
+                });
 
         cartDTO.setProducts(productStream.toList());
         return cartDTO;
     }
+
     @Transactional
 @Override
 public String deleteProductFromCart(Long cartId, Long productId) {
     Cart cart = cartRepository.findById(cartId)
             .orElseThrow(() -> new ResourceNotFoundException("Cart", "cartId", cartId));
-    CartItem cartItem = cartItemRepository.findCartItemByProductIdAndCartId(cartId, productId);
-
-    if(cartItem == null) {
-        throw new ResourceNotFoundException("Product", "productId", productId);
-    }
+    CartItem cartItemToDelete = cart.getCartItems().stream()
+            .filter(item -> item.getProduct().getProductId().equals(productId))
+            .findFirst()
+            .orElseThrow(() -> new ResourceNotFoundException("Product", "productId", productId));
 
     BigDecimal currentCartTotal = cart.getTotalPrice() != null ? cart.getTotalPrice() : BigDecimal.ZERO;
-    BigDecimal itemQuantity = BigDecimal.valueOf(cartItem.getQuantity());
+    BigDecimal itemQuantity = BigDecimal.valueOf(cartItemToDelete.getQuantity());
 
     // 计算被删除商品的总价 = 单价 × 数量
-    BigDecimal removedProductTotal = cartItem.getProductPrice().multiply(itemQuantity);
+    BigDecimal removedProductTotal = cartItemToDelete.getProductPrice().multiply(itemQuantity);
 
     // 购物车新总价 = 原总价 - 被删除商品总价
     BigDecimal newCartTotal = currentCartTotal.subtract(removedProductTotal);
-    newCartTotal = newCartTotal.setScale(2, java.math.RoundingMode.HALF_UP);
 
+        if (cart.getCartItems().size() <= 1 || newCartTotal.compareTo(BigDecimal.ZERO) <= 0) {
+            newCartTotal = BigDecimal.ZERO;
+        } else {
+            newCartTotal = newCartTotal.setScale(2, java.math.RoundingMode.HALF_UP);
+        }
     cart.setTotalPrice(newCartTotal);
 
+    cart.removeCartItem(cartItemToDelete);
+    cartItemToDelete.setCart(null);
 
-    cartItemRepository.deleteCartItemByProductIdAndCartId(cartId, productId);
-
-    return "Product " + cartItem.getProduct().getProductName() + " has been deleted";
+        if (!entityManager.contains(cartItemToDelete)) {
+            cartItemToDelete = entityManager.merge(cartItemToDelete);
+        }
+        entityManager.remove(cartItemToDelete);
+        cartRepository.saveAndFlush(cart);
+    return "Product " + cartItemToDelete.getProduct().getProductName() + " has been deleted";
 }
 
     @Override

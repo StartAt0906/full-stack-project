@@ -1,5 +1,6 @@
 package com.ecommerce.project.controller;
 
+import com.ecommerce.project.exceptions.ResourceNotFoundException;
 import com.ecommerce.project.model.Cart;
 import com.ecommerce.project.model.CartItem;
 import com.ecommerce.project.payload.CartDTO;
@@ -53,18 +54,22 @@ public class CartController {
         return new ResponseEntity<>(cartDTO, HttpStatus.OK);
     }
 
-    @PutMapping("/cart/products/{productId}/quantity/{operation}")
+    @PutMapping("/carts/products/{productId}/quantity/{operation}")
     public ResponseEntity<CartDTO> updateCartProduct(@PathVariable Long productId,
                                                      @PathVariable String operation) {
-        CartDTO cartDTO = cartService.updateProductQuantityInCart(productId,
-                operation.equalsIgnoreCase("delete") ? -1 : 1);
+        int quantityDelta = Integer.parseInt(operation);
+        CartDTO cartDTO = cartService.updateProductQuantityInCart(productId, quantityDelta);
         return new ResponseEntity<>(cartDTO, HttpStatus.OK);
     }
 
-    @DeleteMapping("/carts/{cartId}/product/{productId}")
-    public ResponseEntity<String> deleteProductFromCart(@PathVariable Long cartId,
-                                                        @PathVariable Long productId) {
-        String status = cartService.deleteProductFromCart(cartId,productId);
-        return new ResponseEntity<>(status, HttpStatus.OK);
+    @DeleteMapping("/carts/products/{productId}")
+    public ResponseEntity<String> deleteProductFromCart(@PathVariable Long productId) {
+            String emailId = authUtil.loggedInEmail();
+            Cart userCart = cartRepository.findCartByEmail(emailId);
+            Long cartId = userCart.getCartId();
+            String status = cartService.deleteProductFromCart(cartId, productId);
+            return new ResponseEntity<>(status, HttpStatus.OK);
+        }
     }
-}
+
+
