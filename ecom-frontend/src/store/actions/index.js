@@ -54,13 +54,22 @@ export const fetchCategories = () => async (dispatch) => {
 export const addToCart = (data, qty = 1, toast) => 
     (dispatch, getState) => {
 
-        const { products } = getState().products;
-        const getProduct = products.find(
-            (item) => item.productId === data.productId
-        );
+      const productsState = getState().products;
+        const products = productsState ? productsState.products : [];
+        
+        // 在大列表中检索商品
+        const getProduct = products && Array.isArray(products) 
+            ? products.find((item) => item.productId === data.productId)
+            : null;
 
-        // 1. 前端初步校验库存
-        const isQuantityExist = getProduct.quantity >= qty;
+        // 🚀 核心自愈逻辑：
+        // 如果 getProduct 存在，说明走的是列表页，用大列表的库存校验；
+        // 如果 getProduct 是 undefined（说明是从AI悬浮球空降进来的），直接用我们从详情页打包传过来的真实库存 data.quantity 进行校验！
+        const realStock = getProduct ? getProduct.quantity : (data.quantity || 0);
+
+        // 1. 前端初步校验库存（使用完美缝合后的 realStock，100% 绝不爆红！）
+        const isQuantityExist = realStock >= qty;
+
 
         if (isQuantityExist) {
             const url = `/carts/products/${data.productId}/quantity/${qty}`;
@@ -589,6 +598,28 @@ export const stripePaymentConfirmation
         }
     };
 
+
+
+
+export const getProductDetailAction = 
+    (setLoader, productId, toast) => async (dispatch) => {
+        try {
+            setLoader(true);
+            
+            const response = await api.get(`/public/products/${productId}`);
+            
+            dispatch({
+                type: "GET_PRODUCT_DETAIL_SUCCESS",
+                payload: response.data
+            });
+            
+        } catch (error) {
+            console.error("向后端拉取商品详情失败Action报错:", error);
+            toast.error(error?.response?.data?.message || "拉取商品数据失败，商城开小差了");
+        } finally {
+            setLoader(false);
+        }
+};
 
 
 

@@ -6,6 +6,7 @@ import { Link, useLocation } from "react-router-dom";
 import { IoIosMenu } from "react-icons/io";
 import { useSelector } from "react-redux";
 import UserMenu from "../UserMenu";
+
 const Navbar = () => {
     const path = useLocation().pathname;
     const [navbarOpen, setNavbarOpen] = useState(false);
@@ -75,6 +76,7 @@ const Navbar = () => {
 
                         </Badge>
                     </Link>
+                    
                 </li>
 
                 {(user && user.id) ? (

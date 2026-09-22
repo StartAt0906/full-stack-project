@@ -1,6 +1,7 @@
 package com.ecommerce.project.controller;
 
 import com.ecommerce.project.config.AppConstants;
+import com.ecommerce.project.model.Product;
 import com.ecommerce.project.payload.ProductDTO;
 import com.ecommerce.project.payload.ProductResponse;
 import com.ecommerce.project.service.ProductService;
@@ -128,5 +129,14 @@ public class ProductController {
         ProductResponse productResponse = productService.getAllProductsForSeller(pageNumber, pageSize, sortBy, sortOrder);
         return new ResponseEntity<>(productResponse, HttpStatus.OK);
     }
+
+
+    @GetMapping("/public/products/{productId}")
+    public ResponseEntity<ProductDTO> getProductById(@PathVariable Long productId) {
+        System.out.println("====== [AI 全栈联动] 正在从数据库中捞取动态商品详情，ID: " + productId + " ======");
+        ProductDTO productDTO = productService.getProductById(productId);
+        return new ResponseEntity<>(productDTO, HttpStatus.OK);
+    }
+
 
 }

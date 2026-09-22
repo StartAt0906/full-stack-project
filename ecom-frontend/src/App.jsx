@@ -19,6 +19,8 @@ import { AdminProducts } from './components/admin/products/AdminProducts';
 import { Sellers } from './components/admin/sellers/Sellers';
 import { Category } from './components/admin/categories/Category';
 import { Orders } from './components/admin/orders/Orders';
+import AiChatBot from './components/AiChatBot';
+import ProductDetails from './components/ProductDetails';
 function App() {
  
   return (
@@ -28,9 +30,11 @@ function App() {
       <Routes>
         <Route path='/' element={ <Home />}/>
         <Route path='/products' element={ <Products />}/>
+        <Route path='/products/:id' element={ <ProductDetails /> }/>
         <Route path='/about' element={ <About />}/>
         <Route path='/contact' element={ <Contact />}/>
         <Route path='/cart' element={ <Cart />}/>
+        
         
 
         <Route path='/' element={<PrivateRoute  />}>
@@ -53,7 +57,9 @@ function App() {
           </Route>
         </Route>
       </Routes>
+      <AiChatBot />
     </Router>
+    
     <Toaster position='bottom-center'/>
     </React.Fragment>
   );

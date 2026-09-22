@@ -28,6 +28,7 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class ProductServiceImpl implements ProductService {
@@ -306,6 +307,13 @@ public class ProductServiceImpl implements ProductService {
         productResponse.setTotalPages(productPage.getTotalPages());
         productResponse.setLastPage(productPage.isLast());
         return productResponse;
+    }
+
+    @Override
+    public ProductDTO getProductById(Long productId) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(()-> new ResourceNotFoundException("Product", "productId", productId));
+        return modelMapper.map(product, ProductDTO.class);
     }
 
 

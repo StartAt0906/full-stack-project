@@ -11,8 +11,15 @@ const Cart = () => {
     const newCart = { ...cart };
   
     newCart.totalPrice = cart?.reduce(
-        (acc, cur) => acc + Number(cur?.specialPrice) * Number(cur?.quantity), 0
-    );
+    (acc, cur) => {
+        // 💡 如果 specialPrice 是 null 或 undefined，自动用原价 price 顶上去！
+        const activePrice = cur?.specialPrice ?? cur?.price ?? 0;
+        
+        // 强制转成数字进行数学运算，稳稳当当
+        return acc + (Number(activePrice) * Number(cur?.quantity || 1));
+    }, 
+    0
+);
 
     if (!cart || cart.length === 0) {
         return <CartEmpty />
